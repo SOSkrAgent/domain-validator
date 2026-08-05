@@ -23,7 +23,6 @@ services:
     environment:
       - OPENCLAW_CONFIG=/etc/openclaw/config.yaml
       - OPENAI_API_KEY=${OPENAI_API_KEY:-sk-demo}
-    command: ["--allow-unconfigured"]
     networks:
       - dv-net
 

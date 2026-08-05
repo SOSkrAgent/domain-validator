@@ -1,3 +1,6 @@
+gateway:
+  mode: local
+
 providers:
   - id: default
     type: openai
