@@ -21,7 +21,7 @@ def _render_one(c, rank, scored):
     if scored:
         label += f" — {c.total_score}/5 — {c.verdict}"
     else:
-        label += " — ⏳ pendiente"
+        label += " — ⏳"
     with st.expander(label, expanded=(rank == 0 and scored)):
         if scored:
             cols = st.columns(4)
@@ -32,8 +32,20 @@ def _render_one(c, rank, scored):
                 s = c.scores.get(key, {})
                 if s.get("why"):
                     st.caption(f"**{key}**: {s['why']}")
+
+            if c.availability:
+                st.markdown("**Disponibilidad:**")
+                avail_cols = st.columns(len(TLDS))
+                for col, tld in zip(avail_cols, TLDS):
+                    tld_key = tld.lstrip(".")
+                    s = c.availability.get(tld_key, "unknown")
+                    icon = "🟢" if s == "available" else "🔴" if s in ("taken", "unavailable") else "⚪"
+                    col.markdown(f"{icon} **{tld}**: {s}")
         else:
-            st.caption("Esperando evaluación...")
+            st.markdown("*Evaluando...*")
+            for key in ["evocation", "memorability", "story", "collision"]:
+                st.caption(f"**{key}**: ⏳")
+            st.caption("**Disponibilidad**: ⏳")
 
         flag_cols = st.columns(len(c.flags) if c.flags else 1)
         for col, f in zip(flag_cols, c.flags):
