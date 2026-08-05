@@ -63,7 +63,7 @@ def _build_go_client() -> OpenAI:
 
 def generate_fast(concept: str, n: int = 15) -> list[str]:
     client = _build_zen_client()
-    model = os.getenv("LLM_FAST_MODEL", "deepseek-v4-flash-free")
+    model = os.getenv("LLM_FAST_MODEL", "big-pickle")
     prompt = FAST_GENERATION_PROMPT.format(n=n, concept=concept)
     response = client.chat.completions.create(
         model=model,
@@ -77,42 +77,48 @@ def generate_fast(concept: str, n: int = 15) -> list[str]:
 
 
 def score_stream(candidates: list[CandidateResult], concept: str):
-    names = [c.name for c in candidates]
-    avail = availability_batch(names)
-
+    avail = availability_batch([c.name for c in candidates])
     client = _build_go_client()
     model = os.getenv("LLM_MODEL", "kimi-k2.6")
     total = len(candidates)
+    chunk_size = 3
+    scored = 0
 
-    for i, c in enumerate(candidates):
-        prompt = SINGLE_EVALUATION_PROMPT.format(name=c.name, concept=concept)
+    for chunk_start in range(0, total, chunk_size):
+        chunk = candidates[chunk_start:chunk_start + chunk_size]
+        names_str = "\n".join(f"- {c.name}" for c in chunk)
+        prompt = BATCH_EVALUATION_PROMPT.format(names=names_str, concept=concept)
         response = client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
-            max_tokens=400,
+            max_tokens=6000,
         )
         content = response.choices[0].message.content
         if content:
             try:
                 data = _parse_json(content)
-                if "evocation" in data:
-                    c.scores = {
-                        "evocation": data.get("evocation", {}),
-                        "memorability": data.get("memorability", {}),
-                        "story": data.get("story", {}),
-                        "collision": data.get("collision", {}),
-                    }
-                    c.total_score = _total_score(data)
+                evals = data.get("evaluations", {})
+                for c in chunk:
+                    if c.name in evals:
+                        s = evals[c.name]
+                        c.scores = {
+                            "evocation": s.get("evocation", {}),
+                            "memorability": s.get("memorability", {}),
+                            "story": s.get("story", {}),
+                            "collision": s.get("collision", {}),
+                        }
+                        c.total_score = _total_score(s)
             except (ValueError, json.JSONDecodeError):
                 pass
-        yield i + 1, total, c.name
+        scored += len(chunk)
+        yield scored, total, [c.name for c in chunk]
 
     for c in candidates:
         c.availability = avail.get(c.name, {})
         if all(v in ("taken", "unavailable") for v in c.availability.values()):
             c.verdict = "unavailable"
-        elif not c.scores:
+        elif not any(s.get("value") for s in c.scores.values()):
             c.verdict = "pending"
         elif c.total_score < 3.0:
             c.verdict = "weak"
