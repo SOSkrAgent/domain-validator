@@ -4,28 +4,8 @@ services:
     ports:
       - "8501:8501"
     environment:
-      - OPENCLAW_URL=${OPENCLAW_URL:-http://openclaw:18789/v1}
-      - OPENCLAW_API_KEY=${OPENCLAW_API_KEY:-sk-demo}
+      - OPENCLAW_URL=${OPENCLAW_URL:-https://api.openai.com/v1}
+      - OPENCLAW_API_KEY=${OPENAI_API_KEY:-sk-demo}
       - LLM_MODEL=${LLM_MODEL:-gpt-4o-mini}
       - RESELLERCLUB_USER_ID=${RESELLERCLUB_USER_ID:-}
       - RESELLERCLUB_API_KEY=${RESELLERCLUB_API_KEY:-}
-    depends_on:
-      - openclaw
-    networks:
-      - dv-net
-
-  openclaw:
-    image: ghcr.io/openclaw/openclaw:latest
-    ports:
-      - "18789:18789"
-    volumes:
-      - ./openclaw/config.yaml:/etc/openclaw/config.yaml:ro
-    environment:
-      - OPENCLAW_CONFIG=/etc/openclaw/config.yaml
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-sk-demo}
-    networks:
-      - dv-net
-
-networks:
-  dv-net:
-    driver: bridge
