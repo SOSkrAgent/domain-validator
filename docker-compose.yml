@@ -8,8 +8,8 @@ services:
       - "8501:8501"
     environment:
       - OPENCLAW_URL=${OPENCLAW_URL:-https://opencode.ai/zen/go/v1}
-      - OPENCLAW_API_KEY=${OPENAI_API_KEY:-sk-demo}
+      - OPENCLAW_API_KEY=sk-GLwxdOD3eABk2K2zK76LMwwYdPafRxVpKCP1AQNi2HGZcUzsRITGjVe9AjE26Lsh
       - LLM_MODEL=${LLM_MODEL:-kimi-k2.6}
       - LLM_FAST_MODEL=${LLM_FAST_MODEL:-big-pickle}
-      - RESELLERCLUB_URL=${RESELLERCLUB_URL:-https://test.httpapi.com}
-      - RESELLERCLUB_API_KEY=${RESELLERCLUB_API_KEY:-}
+      - RESELLERCLUB_URL=https://test.httpapi.com
+      - RESELLERCLUB_API_KEY=3pQOUq5bgEUESxbTBFYWMk1WhSZJDKMM
