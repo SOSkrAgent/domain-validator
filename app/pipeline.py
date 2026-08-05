@@ -1,15 +1,17 @@
 import json
 import os
+import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 
 import requests
 from openai import OpenAI
 
 from prompts import (
-    EVALUATION_PROMPT,
+    BATCH_EVALUATION_PROMPT,
     GENERATION_PROMPT,
 )
-from rules import RULES, apply_rules, passes_filter
+from rules import apply_rules, passes_filter
 
 TLDS = [".com", ".co", ".net", ".org"]
 
@@ -25,9 +27,6 @@ class CandidateResult:
     verdict: str = "pending"
     rationale: str = ""
     error: str = ""
-
-
-import re
 
 
 def _parse_json(content: str) -> dict:
@@ -67,9 +66,7 @@ def generate_candidates(concept: str, n: int = 10, client: OpenAI | None = None)
     prompt = GENERATION_PROMPT.format(n=n, concept=concept)
     response = client.chat.completions.create(
         model=model,
-        messages=[
-            {"role": "user", "content": prompt},
-        ],
+        messages=[{"role": "user", "content": prompt}],
         temperature=0.9,
         max_tokens=8000,
     )
@@ -81,41 +78,53 @@ def generate_candidates(concept: str, n: int = 10, client: OpenAI | None = None)
         data = _parse_json(content)
         return data.get("candidates", [])
     except (ValueError, json.JSONDecodeError):
-        print(f"JSON parse failed, using regex fallback")
         return _extract_candidates(content)
 
 
-def evaluate_candidate(name: str, concept: str, client: OpenAI | None = None) -> dict:
+def evaluate_batch(names: list[str], concept: str, client: OpenAI | None = None) -> dict[str, dict]:
+    if not names:
+        return {}
     if client is None:
         client = _build_client()
     model = os.getenv("LLM_MODEL", "gpt-4o-mini")
 
-    prompt = EVALUATION_PROMPT.format(name=name, concept=concept)
+    names_str = "\n".join(f"- {n}" for n in names)
+    prompt = BATCH_EVALUATION_PROMPT.format(names=names_str, concept=concept)
     response = client.chat.completions.create(
         model=model,
-        messages=[
-            {"role": "system", "content": prompt},
-            {"role": "user", "content": f"Evalúa: {name}"},
-        ],
+        messages=[{"role": "user", "content": prompt}],
         temperature=0.3,
-        max_tokens=1000,
+        max_tokens=4000,
     )
     content = response.choices[0].message.content
-    return _parse_json(content)
+    if not content:
+        return {n: {} for n in names}
+    try:
+        data = _parse_json(content)
+        return data.get("evaluations", {})
+    except (ValueError, json.JSONDecodeError):
+        # Fallback: extract per-name scores via regex
+        result = {}
+        for name in names:
+            pattern = rf'"{re.escape(name)}"\s*:\s*\{{[^}}]+\}}'
+            match = re.search(pattern, content)
+            if match:
+                try:
+                    result[name] = json.loads(match.group().split(":", 1)[1].strip())
+                except (json.JSONDecodeError, TypeError):
+                    result[name] = {}
+            else:
+                result[name] = {}
+        return result
 
 
 def _total_score(scores: dict) -> float:
     weights = {"evocation": 0.35, "memorability": 0.30, "story": 0.20, "collision": 0.15}
-    total = sum(scores[k]["value"] * weights[k] for k in weights)
+    total = sum(scores[k]["value"] * weights[k] for k in weights if k in scores and isinstance(scores[k], dict) and "value" in scores[k])
     return round(total, 1)
 
 
-def check_availability(name: str) -> dict[str, str]:
-    api_url = os.getenv("RESELLERCLUB_URL", "https://test.httpapi.com")
-    api_key = os.getenv("RESELLERCLUB_API_KEY", "")
-    if not api_key:
-        return {tld.lstrip("."): "unknown" for tld in TLDS}
-
+def _check_single(name: str, api_url: str, api_key: str) -> dict[str, str]:
     domain = name.lower()
     tlds_param = "&".join(f"tlds={tld.lstrip('.')}" for tld in TLDS)
     url = (
@@ -135,10 +144,22 @@ def check_availability(name: str) -> dict[str, str]:
             else:
                 result[tld_key] = str(status).lower()
         return result
-    except Exception as e:
-        import traceback
-        print(f"ResellerClub error for {domain}: {e}", flush=True)
+    except Exception:
         return {tld.lstrip("."): "error" for tld in TLDS}
+
+
+def check_availability_batch(names: list[str]) -> dict[str, dict[str, str]]:
+    api_url = os.getenv("RESELLERCLUB_URL", "")
+    api_key = os.getenv("RESELLERCLUB_API_KEY", "")
+    if not api_key:
+        return {n: {tld.lstrip("."): "unknown" for tld in TLDS} for n in names}
+
+    results = {}
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futures = {pool.submit(_check_single, n, api_url, api_key): n for n in names}
+        for f in as_completed(futures):
+            results[futures[f]] = f.result()
+    return results
 
 
 def run_pipeline(
@@ -150,12 +171,10 @@ def run_pipeline(
     if client is None:
         client = _build_client()
 
-    # Phase 1: Generate candidates
     if progress_callback:
         progress_callback("generating")
     raw = generate_candidates(concept, n=n_candidates, client=client)
 
-    # Phase 2: Apply deterministic rules
     if progress_callback:
         progress_callback("filtering", len(raw))
     survivors = []
@@ -165,25 +184,30 @@ def run_pipeline(
         if passes_filter(results):
             survivors.append((name, item.get("rationale", ""), results, metrics))
 
-    # Phase 3: LLM evaluation
+    if not survivors:
+        return []
+
+    # Batch evaluation — 1 LLM call for all survivors
     if progress_callback:
         progress_callback("evaluating", len(survivors))
+    names = [s[0] for s in survivors]
+    try:
+        all_scores = evaluate_batch(names, concept, client=client)
+    except Exception as e:
+        return [CandidateResult(name=s[0], rationale=s[1],
+            flags=[{"rule": r.rule, "ok": r.ok, "detail": r.detail} for r in s[2]],
+            metrics=s[3], verdict="error", error=str(e)) for s in survivors]
+
+    # Parallel availability checks
+    if progress_callback:
+        progress_callback("availability", len(survivors))
+    all_avail = check_availability_batch(names)
+
     candidates: list[CandidateResult] = []
     for name, rationale, flags, metrics in survivors:
-        try:
-            scores = evaluate_candidate(name, concept, client=client)
-            total = _total_score(scores)
-        except Exception as e:
-            candidates.append(CandidateResult(
-                name=name, rationale=rationale,
-                flags=[{"rule": r.rule, "ok": r.ok, "detail": r.detail} for r in flags],
-                metrics=metrics,
-                verdict="error", error=str(e),
-            ))
-            continue
-
-        # Phase 4: Availability
-        availability = check_availability(name)
+        scores = all_scores.get(name, {})
+        total = _total_score(scores) if scores else 0.0
+        availability = all_avail.get(name, {})
 
         verdict = "candidate"
         if all(v in ("taken", "unavailable") for v in availability.values()):
@@ -207,6 +231,5 @@ def run_pipeline(
             rationale=rationale,
         ))
 
-    # Sort by total_score desc
     candidates.sort(key=lambda c: c.total_score, reverse=True)
     return candidates

@@ -45,19 +45,26 @@ GENERATION_SCHEMA = {
 }
 
 
-EVALUATION_PROMPT = """Evalúa este nombre de dominio para el concepto dado. Responde ÚNICAMENTE con JSON, sin texto antes ni después.
+EVALUATION_PROMPT = None  # Replaced by BATCH_EVALUATION_PROMPT
 
-Dimensiones (1-5):
-- evocation: ¿cuánto evoca el concepto? (why: breve explicación)
-- memorability: ¿qué tan fácil de recordar? (why: breve explicación)
-- story: ¿potencial narrativo/de marca? (why: breve explicación)
-- collision: ¿riesgo de confusión con marcas existentes? 5=muy distintivo (why: breve explicación)
+BATCH_EVALUATION_PROMPT = """Evalua estos nombres de dominio para el concepto: {concept}
 
-Formato exacto:
-{{"evocation": {{"value": 4, "why": "..."}}, "memorability": {{"value": 4, "why": "..."}}, "story": {{"value": 4, "why": "..."}}, "collision": {{"value": 4, "why": "..."}}}}
+Nombres:
+{names}
 
-Candidato: {name}
-Concepto: {concept}"""
+Para cada nombre, evalua (1-5):
+- evocation: cuanto evoca el concepto
+- memorability: que tan facil de recordar
+- story: potencial narrativo/de marca
+- collision: riesgo de confusion con marcas (5=muy distintivo)
+
+Responde SOLO JSON:
+{{
+  "evaluations": {{
+    "nombre1": {{"evocation": {{"value": 4, "why": "..."}}, "memorability": {{"value": 4, "why": "..."}}, "story": {{"value": 4, "why": "..."}}, "collision": {{"value": 4, "why": "..."}}}},
+    "nombre2": {{...}}
+  }}
+}}"""
 
 EVALUATION_SCHEMA = {
     "name": "domain_evaluation",
