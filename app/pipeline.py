@@ -55,15 +55,14 @@ def generate_candidates(concept: str, n: int = 10, client: OpenAI | None = None)
         client = _build_client()
     model = os.getenv("LLM_MODEL", "gpt-4o-mini")
 
-    prompt = GENERATION_PROMPT.format(n=n)
+    prompt = GENERATION_PROMPT.format(n=n, concept=concept)
     response = client.chat.completions.create(
         model=model,
         messages=[
-            {"role": "system", "content": prompt},
-            {"role": "user", "content": f"Concepto: {concept}"},
+            {"role": "user", "content": prompt},
         ],
-        response_format={"type": "json_object"},
         temperature=0.9,
+        max_tokens=2000,
     )
     content = response.choices[0].message.content
     data = _parse_json(content)
@@ -82,8 +81,8 @@ def evaluate_candidate(name: str, concept: str, client: OpenAI | None = None) ->
             {"role": "system", "content": prompt},
             {"role": "user", "content": f"Evalúa: {name}"},
         ],
-        response_format={"type": "json_object"},
         temperature=0.3,
+        max_tokens=1000,
     )
     content = response.choices[0].message.content
     return _parse_json(content)

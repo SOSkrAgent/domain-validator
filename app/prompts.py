@@ -1,15 +1,18 @@
-GENERATION_PROMPT = """Eres un experto en naming y branding. Dado un concepto de negocio, genera nombres de dominio creativos y memorables en español.
+GENERATION_PROMPT = """Dado un concepto de negocio, genera nombres de dominio creativos y memorables.
 
 Reglas:
-- Nombres cortos (4-9 letras)
-- Fáciles de pronunciar y deletrear en español
-- Evitar la letra K (no es nativa del español)
-- Sin terminaciones extranjeras (-ck, -rk, -th, -sh, -ph)
+- Nombres cortos (4-9 letras), solo minúsculas sin tildes
+- Fáciles de deletrear en español
+- Evitar la letra K y terminaciones extranjeras (-ck, -rk, -th)
 - Máximo 3 sílabas
-- Deben evocar el concepto, no ser literales
+- Sin TLD (.com, .net, etc.) en el nombre
 - Sin guiones ni números
+- Evocar el concepto, no ser literal
 
-Genera exactamente {n} candidatos."""
+Responde solo este JSON, sin texto antes ni después:
+{{"candidates": [{{"name": "ejemplo", "rationale": "por qué evoca el concepto"}}]}}
+
+Genera {n} candidatos para: {concept}"""
 
 GENERATION_SCHEMA = {
     "name": "domain_candidates",
@@ -42,15 +45,16 @@ GENERATION_SCHEMA = {
 }
 
 
-EVALUATION_PROMPT = """Eres un evaluador experto de nombres de dominio. Evalúa el siguiente candidato para el concepto dado.
+EVALUATION_PROMPT = """Evalúa este nombre de dominio para el concepto dado. Responde ÚNICAMENTE con JSON, sin texto antes ni después.
 
-Evalúa estas dimensiones (1-5):
-- **evocation** (evocación): ¿cuánto evoca el concepto sin ser literal? 1=nada, 5=evoca perfectamente
-- **memorability** (memorabilidad): ¿qué tan fácil de recordar? 1=difícil, 5=inmediatamente memorable
-- **story** (historia): ¿tiene potencial narrativo/de marca? 1=ninguno, 5=historia potente
-- **collision** (colisión): ¿riesgo de confusión con marcas existentes? 1=alto riesgo, 5=muy distintivo
+Dimensiones (1-5):
+- evocation: ¿cuánto evoca el concepto? (why: breve explicación)
+- memorability: ¿qué tan fácil de recordar? (why: breve explicación)
+- story: ¿potencial narrativo/de marca? (why: breve explicación)
+- collision: ¿riesgo de confusión con marcas existentes? 5=muy distintivo (why: breve explicación)
 
-Responde con los 4 scores y un "why" breve para cada uno.
+Formato exacto:
+{{"evocation": {{"value": 4, "why": "..."}}, "memorability": {{"value": 4, "why": "..."}}, "story": {{"value": 4, "why": "..."}}, "collision": {{"value": 4, "why": "..."}}}}
 
 Candidato: {name}
 Concepto: {concept}"""
