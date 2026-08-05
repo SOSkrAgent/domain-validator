@@ -34,6 +34,12 @@ GENERATION_SCHEMA = {
 
 EVALUATION_PROMPT = None  # Replaced by BATCH_EVALUATION_PROMPT
 
+SINGLE_EVALUATION_PROMPT = """Evalua este nombre de dominio para: {concept}
+Nombre: {name}
+Puntua 1-5: evocation, memorability, story, collision.
+Responde SOLO: {{"evocation": {{"value": 4, "why": "..."}}, "memorability": {{"value": 4, "why": "..."}}, "story": {{"value": 4, "why": "..."}}, "collision": {{"value": 4, "why": "..."}}}}"""
+
+
 BATCH_EVALUATION_PROMPT = """Evalua estos nombres de dominio para el concepto: {concept}
 
 Nombres:

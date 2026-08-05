@@ -10,6 +10,7 @@ from openai import OpenAI
 from prompts import (
     BATCH_EVALUATION_PROMPT,
     FAST_GENERATION_PROMPT,
+    SINGLE_EVALUATION_PROMPT,
 )
 from rules import apply_rules, passes_filter
 
@@ -75,27 +76,53 @@ def generate_fast(concept: str, n: int = 15) -> list[str]:
     return names[:n]
 
 
-def score_batch(names: list[str], concept: str) -> dict[str, dict]:
-    if not names:
-        return {}
+def score_stream(candidates: list[CandidateResult], concept: str):
+    names = [c.name for c in candidates]
+    avail = availability_batch(names)
+
     client = _build_go_client()
     model = os.getenv("LLM_MODEL", "kimi-k2.6")
-    names_str = "\n".join(f"- {n}" for n in names)
-    prompt = BATCH_EVALUATION_PROMPT.format(names=names_str, concept=concept)
-    response = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.3,
-        max_tokens=8000,
-    )
-    content = response.choices[0].message.content
-    if not content:
-        return {}
-    try:
-        data = _parse_json(content)
-        return data.get("evaluations", {})
-    except (ValueError, json.JSONDecodeError):
-        return {}
+    total = len(candidates)
+    scored_map: dict[str, dict] = {}
+
+    for i, c in enumerate(candidates):
+        prompt = SINGLE_EVALUATION_PROMPT.format(name=c.name, concept=concept)
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=400,
+        )
+        content = response.choices[0].message.content
+        if content:
+            try:
+                data = _parse_json(content)
+                if "evocation" in data:
+                    scored_map[c.name] = data
+            except (ValueError, json.JSONDecodeError):
+                pass
+        yield i + 1, total, c.name
+
+    for c in candidates:
+        s = scored_map.get(c.name, {})
+        c.scores = {
+            "evocation": s.get("evocation", {}),
+            "memorability": s.get("memorability", {}),
+            "story": s.get("story", {}),
+            "collision": s.get("collision", {}),
+        }
+        c.total_score = _total_score(s) if s else 0.0
+        c.availability = avail.get(c.name, {})
+        if all(v in ("taken", "unavailable") for v in c.availability.values()):
+            c.verdict = "unavailable"
+        elif not s:
+            c.verdict = "pending"
+        elif c.total_score < 3.0:
+            c.verdict = "weak"
+        else:
+            c.verdict = "candidate"
+    candidates.sort(key=lambda x: x.total_score, reverse=True)
+    yield ("done", candidates)
 
 
 def _total_score(scores: dict) -> float:
@@ -158,30 +185,8 @@ def enrich_candidates(names: list[str], concept: str) -> list[CandidateResult]:
     return candidates
 
 
-def apply_scores(candidates: list[CandidateResult], concept: str) -> list[CandidateResult]:
-    names = [c.name for c in candidates]
-    scores = score_batch(names, concept)
-    avail = availability_batch(names)
-    for c in candidates:
-        s = scores.get(c.name, {})
-        c.scores = {
-            "evocation": s.get("evocation", {}),
-            "memorability": s.get("memorability", {}),
-            "story": s.get("story", {}),
-            "collision": s.get("collision", {}),
-        }
-        c.total_score = _total_score(s) if s else 0.0
-        c.availability = avail.get(c.name, {})
-        if all(v in ("taken", "unavailable") for v in c.availability.values()):
-            c.verdict = "unavailable"
-        elif not s:
-            c.verdict = "pending"
-        elif c.total_score < 3.0:
-            c.verdict = "weak"
-        else:
-            c.verdict = "candidate"
-    candidates.sort(key=lambda c: c.total_score, reverse=True)
-    return candidates
+def apply_scores(candidates: list[CandidateResult], concept: str):
+    yield from score_stream(candidates, concept)
 
 
 def run_pipeline(
