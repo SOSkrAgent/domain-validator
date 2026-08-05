@@ -1,10 +1,10 @@
 GENERATION_PROMPT = """Eres un experto en naming y branding. Dado un concepto de negocio, genera nombres de dominio creativos y memorables en español.
 
 Reglas:
-- Nombres cortos (4-9 letras idealmente)
+- Nombres cortos (4-9 letras)
 - Fáciles de pronunciar y deletrear en español
-- Sin ambigüedades fonéticas (evitar b/v juntas, ll/y, s/z/c, k)
-- Sin terminaciones extranjeras (-ck, -rk, -th, -sh)
+- Evitar la letra K (no es nativa del español)
+- Sin terminaciones extranjeras (-ck, -rk, -th, -sh, -ph)
 - Máximo 3 sílabas
 - Deben evocar el concepto, no ser literales
 - Sin guiones ni números

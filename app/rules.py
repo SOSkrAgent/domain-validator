@@ -93,5 +93,9 @@ def apply_rules(name: str) -> tuple[list[RuleResult], dict]:
     return results, metrics
 
 
+# Rules that block (hard filter)
+BLOCK_RULES = {"qui-vs-k", "foreign-ending", "syllables"}
+
+
 def passes_filter(results: list[RuleResult]) -> bool:
-    return all(r.ok for r in results)
+    return all(r.ok for r in results if r.rule in BLOCK_RULES)
