@@ -31,17 +31,24 @@ import re
 
 
 def _parse_json(content: str) -> dict:
-    # Try direct parse first
     try:
         return json.loads(content)
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, TypeError):
         pass
-    # Extract JSON between first { and last }
     start = content.find("{")
     end = content.rfind("}")
     if start != -1 and end != -1 and end > start:
-        return json.loads(content[start:end + 1])
-    raise ValueError(f"No JSON found in response: {content[:300]}")
+        try:
+            return json.loads(content[start:end + 1])
+        except (json.JSONDecodeError, TypeError):
+            pass
+    raise ValueError(f"No parseable JSON in response: {content[:300]}")
+
+
+def _extract_candidates(content: str) -> list[dict]:
+    names = re.findall(r'"name"\s*:\s*"([^"]+)"', content)
+    rationales = re.findall(r'"rationale"\s*:\s*"([^"]+)"', content)
+    return [{"name": n, "rationale": r} for n, r in zip(names, rationales)]
 
 
 def _build_client() -> OpenAI:
@@ -65,8 +72,12 @@ def generate_candidates(concept: str, n: int = 10, client: OpenAI | None = None)
         max_tokens=2000,
     )
     content = response.choices[0].message.content
-    data = _parse_json(content)
-    return data.get("candidates", [])
+    try:
+        data = _parse_json(content)
+        return data.get("candidates", [])
+    except (ValueError, json.JSONDecodeError):
+        print(f"JSON parse failed, using regex fallback")
+        return _extract_candidates(content)
 
 
 def evaluate_candidate(name: str, concept: str, client: OpenAI | None = None) -> dict:
