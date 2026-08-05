@@ -71,7 +71,7 @@ def generate_candidates(concept: str, n: int = 10, client: OpenAI | None = None)
             {"role": "user", "content": prompt},
         ],
         temperature=0.9,
-        max_tokens=2000,
+        max_tokens=8000,
     )
     content = response.choices[0].message.content
     if not content:
