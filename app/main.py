@@ -52,15 +52,6 @@ def _render_one(c, rank, scored):
             icon = "✅" if f["ok"] else "⚠️"
             col.markdown(f"{icon} `{f['rule']}`")
 
-        if scored and c.availability:
-            st.markdown("**Disponibilidad:**")
-            avail_cols = st.columns(len(TLDS))
-            for col, tld in zip(avail_cols, TLDS):
-                tld_key = tld.lstrip(".")
-                s = c.availability.get(tld_key, "unknown")
-                icon = "🟢" if s == "available" else "🔴" if s in ("taken", "unavailable") else "⚪"
-                col.markdown(f"{icon} **{tld}**: {s}")
-
         if c.error:
             st.error(c.error)
 
