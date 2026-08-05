@@ -1,18 +1,5 @@
-GENERATION_PROMPT = """Dado un concepto de negocio, genera nombres de dominio creativos y memorables.
-
-Reglas:
-- Nombres cortos (4-9 letras), solo minúsculas sin tildes
-- Fáciles de deletrear en español
-- Evitar la letra K y terminaciones extranjeras (-ck, -rk, -th)
-- Máximo 3 sílabas
-- Sin TLD (.com, .net, etc.) en el nombre
-- Sin guiones ni números
-- Evocar el concepto, no ser literal
-
-Responde solo este JSON, sin texto antes ni después:
-{{"candidates": [{{"name": "ejemplo", "rationale": "por qué evoca el concepto"}}]}}
-
-Genera {n} candidatos para: {concept}"""
+FAST_GENERATION_PROMPT = """{n} short domain names (4-9 letters, lowercase, no dashes, no numbers, no k, no -ck -rk -th endings) for: {concept}
+ONLY output: name1, name2, name3"""
 
 GENERATION_SCHEMA = {
     "name": "domain_candidates",

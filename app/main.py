@@ -1,6 +1,7 @@
+import threading
 import streamlit as st
 
-from pipeline import run_pipeline, TLDS
+from pipeline import generate_fast, enrich_candidates, apply_scores, TLDS
 from rules import RULES
 
 st.set_page_config(page_title="Domain Validator", page_icon="🔍", layout="wide")
@@ -10,80 +11,79 @@ st.caption("PoC — Generación y evaluación de nombres de dominio con IA")
 concept = st.text_input(
     "Concepto",
     placeholder="Ej: fintech de microcréditos para pymes",
-    value=st.session_state.get("concept", ""),
 )
-st.session_state["concept"] = concept
+n_candidates = st.slider("Candidatos", 5, 20, 15)
+st.caption("Reglas: " + ", ".join(f"`{r}`" for r in RULES))
 
-col1, col2 = st.columns(2)
-with col1:
-    n_candidates = st.slider("Candidatos a generar", 5, 20, 10)
-with col2:
-    st.markdown("")
-    st.markdown("**Reglas aplicadas:** " + ", ".join(f"`{r}`" for r in RULES))
 
-if st.button("Ejecutar Pipeline", use_container_width=True, disabled=not concept.strip()):
-    progress = st.empty()
-    status = st.empty()
-    results_container = st.container()
-
-    def on_progress(phase, count=0):
-        labels = {
-            "generating": f"🧠 Generando {n_candidates} candidatos con LLM...",
-            "filtering": f"🔍 Aplicando reglas determinísticas a {count} candidatos...",
-            "evaluating": f"📊 Evaluando {count} sobrevivientes con LLM...",
-        }
-        status.info(labels.get(phase, phase))
-
-    with st.spinner("Ejecutando pipeline..."):
-        candidates = run_pipeline(concept, n_candidates=n_candidates, progress_callback=on_progress)
-
-    progress.empty()
-    status.empty()
-
-    if not candidates:
-        st.warning("Ningún candidato sobrevivió el filtro. Prueba con otro concepto.")
-    else:
-        st.subheader(f"Resultados — {len(candidates)} candidatos evaluados")
-
-        for i, c in enumerate(candidates):
-            with st.expander(
-                f"{'🥇' if i == 0 else '🥈' if i == 1 else '🥉' if i == 2 else '📌'} "
-                f"**{c.name}** — {c.total_score}/5 — {c.verdict}",
-                expanded=(i == 0),
-            ):
-                # Scores row
+def _render_candidates(candidates: list, title: str):
+    st.subheader(title)
+    for i, c in enumerate(candidates):
+        prefix = "🥇" if i == 0 else "🥈" if i == 1 else "🥉" if i == 2 else "📌"
+        has_scores = any(
+            isinstance(c.scores.get(k), dict) and c.scores[k].get("value")
+            for k in ["evocation", "memorability", "story", "collision"]
+        )
+        expander_title = f"{prefix} **{c.name}**"
+        if has_scores:
+            expander_title += f" — {c.total_score}/5 — {c.verdict}"
+        with st.expander(expander_title, expanded=(i == 0)):
+            if has_scores:
                 cols = st.columns(4)
-                score_keys = ["evocation", "memorability", "story", "collision"]
-                for col, key in zip(cols, score_keys):
+                for col, key in zip(cols, ["evocation", "memorability", "story", "collision"]):
                     s = c.scores.get(key, {})
-                    val = s.get("value", "?")
-                    col.metric(key.capitalize(), f"{val}/5")
+                    col.metric(key.capitalize(), f"{s.get('value', '?')}/5")
+                for key in ["evocation", "memorability", "story", "collision"]:
+                    s = c.scores.get(key, {})
+                    if s.get("why"):
+                        st.caption(f"**{key}**: {s['why']}")
 
-                # Score details
-                with st.container():
-                    for key in score_keys:
-                        s = c.scores.get(key, {})
-                        if s.get("why"):
-                            st.caption(f"**{key}**: {s['why']}")
+            flag_cols = st.columns(len(c.flags) if c.flags else 1)
+            for col, f in zip(flag_cols, c.flags):
+                icon = "✅" if f["ok"] else "⚠️"
+                col.markdown(f"{icon} `{f['rule']}`")
 
-                # Rule flags
-                st.markdown("**Flags:**")
-                flag_cols = st.columns(len(c.flags) if c.flags else 1)
-                for col, f in zip(flag_cols, c.flags):
-                    icon = "✅" if f["ok"] else "❌"
-                    col.markdown(f"{icon} `{f['rule']}`")
-
-                # Availability
+            if c.availability:
                 st.markdown("**Disponibilidad:**")
                 avail_cols = st.columns(len(TLDS))
                 for col, tld in zip(avail_cols, TLDS):
                     tld_key = tld.lstrip(".")
-                    status_text = c.availability.get(tld_key, "unknown")
-                    icon = "🟢" if status_text == "available" else "🔴" if status_text in ("taken", "unavailable") else "⚪"
-                    col.markdown(f"{icon} **{tld}**: {status_text}")
+                    s = c.availability.get(tld_key, "unknown")
+                    icon = "🟢" if s == "available" else "🔴" if s in ("taken", "unavailable") else "⚪"
+                    col.markdown(f"{icon} **{tld}**: {s}")
 
-                if c.error:
-                    st.error(f"Error: {c.error}")
+            if c.error:
+                st.error(f"Error: {c.error}")
+
+
+def _score_background(candidates: list, concept: str):
+    scored = apply_scores(candidates, concept)
+    st.session_state["scored"] = scored
+    st.session_state["scoring_done"] = True
+
+
+if st.button("Ejecutar Pipeline", use_container_width=True, disabled=not concept.strip()):
+    st.session_state["scoring_done"] = False
+    st.session_state["scored"] = None
+    st.session_state["candidates"] = None
+
+    with st.spinner(f"Generando {n_candidates} nombres..."):
+        names = generate_fast(concept.strip(), n=n_candidates)
+        candidates = enrich_candidates(names, concept.strip())
+        st.session_state["candidates"] = candidates
+
+    _render_candidates(candidates, f"Resultados — {len(candidates)} candidatos")
+
+    thread = threading.Thread(target=_score_background, args=(candidates, concept.strip()))
+    thread.start()
+    st.info("Calculando scores y disponibilidad en segundo plano...")
+
+elif st.session_state.get("scoring_done") and st.session_state.get("scored"):
+    _render_candidates(
+        st.session_state["scored"],
+        f"Resultados — {len(st.session_state['scored'])} candidatos evaluados",
+    )
+    st.session_state["scoring_done"] = False
 
 st.divider()
-st.caption("Reglas determinísticas: español • LLM vía OpenClaw • Disponibilidad vía ResellerClub")
+st.caption("Fast gen: OpenCode Zen · Scoring: OpenCode Go · Disponibilidad: ResellerClub")

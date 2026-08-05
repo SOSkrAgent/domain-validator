@@ -9,6 +9,7 @@ services:
     environment:
       - OPENCLAW_URL=${OPENCLAW_URL:-https://opencode.ai/zen/go/v1}
       - OPENCLAW_API_KEY=${OPENAI_API_KEY:-sk-demo}
-      - LLM_MODEL=${LLM_MODEL:-hy3}
+      - LLM_MODEL=${LLM_MODEL:-kimi-k2.6}
+      - LLM_FAST_MODEL=${LLM_FAST_MODEL:-deepseek-v4-flash-free}
       - RESELLERCLUB_URL=${RESELLERCLUB_URL:-https://test.httpapi.com}
       - RESELLERCLUB_API_KEY=${RESELLERCLUB_API_KEY:-}

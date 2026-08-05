@@ -9,7 +9,7 @@ from openai import OpenAI
 
 from prompts import (
     BATCH_EVALUATION_PROMPT,
-    GENERATION_PROMPT,
+    FAST_GENERATION_PROMPT,
 )
 from rules import apply_rules, passes_filter
 
@@ -46,81 +46,65 @@ def _parse_json(content: str) -> dict:
     raise ValueError(f"No parseable JSON in response: {content[:300]}")
 
 
-def _extract_candidates(content: str) -> list[dict]:
-    names = re.findall(r'"name"\s*:\s*"([^"]+)"', content)
-    rationales = re.findall(r'"rationale"\s*:\s*"([^"]+)"', content)
-    return [{"name": n, "rationale": r} for n, r in zip(names, rationales)]
+def _build_zen_client() -> OpenAI:
+    return OpenAI(
+        base_url="https://opencode.ai/zen/v1",
+        api_key=os.getenv("OPENCLAW_API_KEY", "sk-demo"),
+    )
 
 
-def _build_client() -> OpenAI:
-    base_url = os.getenv("OPENCLAW_URL", "http://localhost:18789/v1")
-    api_key = os.getenv("OPENCLAW_API_KEY", "sk-demo")
-    return OpenAI(base_url=base_url, api_key=api_key)
+def _build_go_client() -> OpenAI:
+    return OpenAI(
+        base_url=os.getenv("OPENCLAW_URL", "https://opencode.ai/zen/go/v1"),
+        api_key=os.getenv("OPENCLAW_API_KEY", "sk-demo"),
+    )
 
 
-def generate_candidates(concept: str, n: int = 10, client: OpenAI | None = None) -> list[dict]:
-    if client is None:
-        client = _build_client()
-    model = os.getenv("LLM_MODEL", "gpt-4o-mini")
-
-    prompt = GENERATION_PROMPT.format(n=n, concept=concept)
+def generate_fast(concept: str, n: int = 15) -> list[str]:
+    client = _build_zen_client()
+    model = os.getenv("LLM_FAST_MODEL", "deepseek-v4-flash-free")
+    prompt = FAST_GENERATION_PROMPT.format(n=n, concept=concept)
     response = client.chat.completions.create(
         model=model,
         messages=[{"role": "user", "content": prompt}],
-        temperature=0.9,
         max_tokens=8000,
+        temperature=0.9,
     )
-    content = response.choices[0].message.content
-    if not content:
-        finish = response.choices[0].finish_reason
-        raise ValueError(f"LLM returned empty response (finish_reason={finish})")
-    try:
-        data = _parse_json(content)
-        return data.get("candidates", [])
-    except (ValueError, json.JSONDecodeError):
-        return _extract_candidates(content)
+    content = response.choices[0].message.content or ""
+    names = [n.strip().lower() for n in content.split(",") if n.strip() and len(n.strip()) >= 3]
+    return names[:n]
 
 
-def evaluate_batch(names: list[str], concept: str, client: OpenAI | None = None) -> dict[str, dict]:
+def score_batch(names: list[str], concept: str) -> dict[str, dict]:
     if not names:
         return {}
-    if client is None:
-        client = _build_client()
-    model = os.getenv("LLM_MODEL", "gpt-4o-mini")
-
+    client = _build_go_client()
+    model = os.getenv("LLM_MODEL", "kimi-k2.6")
     names_str = "\n".join(f"- {n}" for n in names)
     prompt = BATCH_EVALUATION_PROMPT.format(names=names_str, concept=concept)
     response = client.chat.completions.create(
         model=model,
         messages=[{"role": "user", "content": prompt}],
         temperature=0.3,
-        max_tokens=4000,
+        max_tokens=8000,
     )
     content = response.choices[0].message.content
     if not content:
-        return {n: {} for n in names}
+        return {}
     try:
         data = _parse_json(content)
         return data.get("evaluations", {})
     except (ValueError, json.JSONDecodeError):
-        # Fallback: extract per-name scores via regex
-        result = {}
-        for name in names:
-            pattern = rf'"{re.escape(name)}"\s*:\s*\{{[^}}]+\}}'
-            match = re.search(pattern, content)
-            if match:
-                try:
-                    result[name] = json.loads(match.group().split(":", 1)[1].strip())
-                except (json.JSONDecodeError, TypeError):
-                    result[name] = {}
-            else:
-                result[name] = {}
-        return result
+        return {}
 
 
 def _total_score(scores: dict) -> float:
     weights = {"evocation": 0.35, "memorability": 0.30, "story": 0.20, "collision": 0.15}
-    total = sum(scores[k]["value"] * weights[k] for k in weights if k in scores and isinstance(scores[k], dict) and "value" in scores[k])
+    total = sum(
+        scores[k]["value"] * weights[k]
+        for k in weights
+        if k in scores and isinstance(scores.get(k), dict) and "value" in scores[k]
+    )
     return round(total, 1)
 
 
@@ -139,21 +123,21 @@ def _check_single(name: str, api_url: str, api_key: str) -> dict[str, str]:
         for tld in TLDS:
             tld_key = tld.lstrip(".")
             status = data.get(tld_key, "unknown")
-            if isinstance(status, dict):
-                result[tld_key] = status.get("status", "unknown").lower()
-            else:
-                result[tld_key] = str(status).lower()
+            result[tld_key] = (
+                status.get("status", "unknown").lower()
+                if isinstance(status, dict)
+                else str(status).lower()
+            )
         return result
     except Exception:
         return {tld.lstrip("."): "error" for tld in TLDS}
 
 
-def check_availability_batch(names: list[str]) -> dict[str, dict[str, str]]:
+def availability_batch(names: list[str]) -> dict[str, dict[str, str]]:
     api_url = os.getenv("RESELLERCLUB_URL", "")
     api_key = os.getenv("RESELLERCLUB_API_KEY", "")
     if not api_key:
         return {n: {tld.lstrip("."): "unknown" for tld in TLDS} for n in names}
-
     results = {}
     with ThreadPoolExecutor(max_workers=4) as pool:
         futures = {pool.submit(_check_single, n, api_url, api_key): n for n in names}
@@ -162,74 +146,60 @@ def check_availability_batch(names: list[str]) -> dict[str, dict[str, str]]:
     return results
 
 
+def enrich_candidates(names: list[str], concept: str) -> list[CandidateResult]:
+    candidates: list[CandidateResult] = []
+    for name in names:
+        rules, metrics = apply_rules(name)
+        candidates.append(CandidateResult(
+            name=name,
+            flags=[{"rule": r.rule, "ok": r.ok} for r in rules],
+            metrics=metrics,
+        ))
+    return candidates
+
+
+def apply_scores(candidates: list[CandidateResult], concept: str) -> list[CandidateResult]:
+    names = [c.name for c in candidates]
+    scores = score_batch(names, concept)
+    avail = availability_batch(names)
+    for c in candidates:
+        s = scores.get(c.name, {})
+        c.scores = {
+            "evocation": s.get("evocation", {}),
+            "memorability": s.get("memorability", {}),
+            "story": s.get("story", {}),
+            "collision": s.get("collision", {}),
+        }
+        c.total_score = _total_score(s) if s else 0.0
+        c.availability = avail.get(c.name, {})
+        if all(v in ("taken", "unavailable") for v in c.availability.values()):
+            c.verdict = "unavailable"
+        elif not s:
+            c.verdict = "pending"
+        elif c.total_score < 3.0:
+            c.verdict = "weak"
+        else:
+            c.verdict = "candidate"
+    candidates.sort(key=lambda c: c.total_score, reverse=True)
+    return candidates
+
+
 def run_pipeline(
     concept: str,
     n_candidates: int = 10,
     client: OpenAI | None = None,
     progress_callback=None,
 ) -> list[CandidateResult]:
-    if client is None:
-        client = _build_client()
-
+    # Phase 1: Fast generation + rules
     if progress_callback:
         progress_callback("generating")
-    raw = generate_candidates(concept, n=n_candidates, client=client)
+    names = generate_fast(concept, n=n_candidates)
 
     if progress_callback:
-        progress_callback("filtering", len(raw))
-    survivors = []
-    for item in raw:
-        name = item["name"].lower().strip()
-        results, metrics = apply_rules(name)
-        if passes_filter(results):
-            survivors.append((name, item.get("rationale", ""), results, metrics))
+        progress_callback("filtering", len(names))
+    candidates = enrich_candidates(names, concept)
 
-    if not survivors:
-        return []
-
-    # Batch evaluation — 1 LLM call for all survivors
+    # Phase 2: Scoring + availability
     if progress_callback:
-        progress_callback("evaluating", len(survivors))
-    names = [s[0] for s in survivors]
-    try:
-        all_scores = evaluate_batch(names, concept, client=client)
-    except Exception as e:
-        return [CandidateResult(name=s[0], rationale=s[1],
-            flags=[{"rule": r.rule, "ok": r.ok, "detail": r.detail} for r in s[2]],
-            metrics=s[3], verdict="error", error=str(e)) for s in survivors]
-
-    # Parallel availability checks
-    if progress_callback:
-        progress_callback("availability", len(survivors))
-    all_avail = check_availability_batch(names)
-
-    candidates: list[CandidateResult] = []
-    for name, rationale, flags, metrics in survivors:
-        scores = all_scores.get(name, {})
-        total = _total_score(scores) if scores else 0.0
-        availability = all_avail.get(name, {})
-
-        verdict = "candidate"
-        if all(v in ("taken", "unavailable") for v in availability.values()):
-            verdict = "unavailable"
-        elif total < 3.0:
-            verdict = "weak"
-
-        candidates.append(CandidateResult(
-            name=name,
-            flags=[{"rule": r.rule, "ok": r.ok} for r in flags],
-            metrics=metrics,
-            scores={
-                "evocation": scores.get("evocation", {}),
-                "memorability": scores.get("memorability", {}),
-                "story": scores.get("story", {}),
-                "collision": scores.get("collision", {}),
-            },
-            total_score=total,
-            availability=availability,
-            verdict=verdict,
-            rationale=rationale,
-        ))
-
-    candidates.sort(key=lambda c: c.total_score, reverse=True)
-    return candidates
+        progress_callback("evaluating", len(candidates))
+    return apply_scores(candidates, concept)
