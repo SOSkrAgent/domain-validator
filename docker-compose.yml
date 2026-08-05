@@ -4,8 +4,8 @@ services:
     ports:
       - "8501:8501"
     environment:
-      - OPENCLAW_URL=${OPENCLAW_URL:-https://api.openai.com/v1}
+      - OPENCLAW_URL=${OPENCLAW_URL:-https://opencode.ai/zen/v1}
       - OPENCLAW_API_KEY=${OPENAI_API_KEY:-sk-demo}
-      - LLM_MODEL=${LLM_MODEL:-gpt-4o-mini}
+      - LLM_MODEL=${LLM_MODEL:-deepseek-v4-flash-free}
       - RESELLERCLUB_USER_ID=${RESELLERCLUB_USER_ID:-}
       - RESELLERCLUB_API_KEY=${RESELLERCLUB_API_KEY:-}
