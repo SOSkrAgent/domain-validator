@@ -1,4 +1,4 @@
-import threading
+import time
 import streamlit as st
 
 from pipeline import generate_fast, enrich_candidates, apply_scores, TLDS
@@ -24,10 +24,10 @@ def _render_candidates(candidates: list, title: str):
             isinstance(c.scores.get(k), dict) and c.scores[k].get("value")
             for k in ["evocation", "memorability", "story", "collision"]
         )
-        expander_title = f"{prefix} **{c.name}**"
+        label = f"{prefix} **{c.name}**"
         if has_scores:
-            expander_title += f" — {c.total_score}/5 — {c.verdict}"
-        with st.expander(expander_title, expanded=(i == 0)):
+            label += f" — {c.total_score}/5 — {c.verdict}"
+        with st.expander(label, expanded=(i == 0)):
             if has_scores:
                 cols = st.columns(4)
                 for col, key in zip(cols, ["evocation", "memorability", "story", "collision"]):
@@ -53,37 +53,28 @@ def _render_candidates(candidates: list, title: str):
                     col.markdown(f"{icon} **{tld}**: {s}")
 
             if c.error:
-                st.error(f"Error: {c.error}")
-
-
-def _score_background(candidates: list, concept: str):
-    scored = apply_scores(candidates, concept)
-    st.session_state["scored"] = scored
-    st.session_state["scoring_done"] = True
+                st.error(c.error)
 
 
 if st.button("Ejecutar Pipeline", use_container_width=True, disabled=not concept.strip()):
-    st.session_state["scoring_done"] = False
-    st.session_state["scored"] = None
-    st.session_state["candidates"] = None
-
+    # Phase 1: Generate names fast
     with st.spinner(f"Generando {n_candidates} nombres..."):
         names = generate_fast(concept.strip(), n=n_candidates)
+
+    if not names:
+        st.warning("No se pudieron generar nombres. Intenta con otro concepto.")
+    else:
+        # Show names immediately with rules
         candidates = enrich_candidates(names, concept.strip())
-        st.session_state["candidates"] = candidates
+        _render_candidates(candidates, f"Resultados — {len(candidates)} candidatos")
 
-    _render_candidates(candidates, f"Resultados — {len(candidates)} candidatos")
+        # Phase 2: Score + availability
+        status = st.empty()
+        status.info("Calculando scores y disponibilidad...")
+        scored = apply_scores(candidates, concept.strip())
+        status.empty()
 
-    thread = threading.Thread(target=_score_background, args=(candidates, concept.strip()))
-    thread.start()
-    st.info("Calculando scores y disponibilidad en segundo plano...")
-
-elif st.session_state.get("scoring_done") and st.session_state.get("scored"):
-    _render_candidates(
-        st.session_state["scored"],
-        f"Resultados — {len(st.session_state['scored'])} candidatos evaluados",
-    )
-    st.session_state["scoring_done"] = False
+        _render_candidates(scored, f"Resultados — {len(scored)} candidatos evaluados")
 
 st.divider()
 st.caption("Fast gen: OpenCode Zen · Scoring: OpenCode Go · Disponibilidad: ResellerClub")
