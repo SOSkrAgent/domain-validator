@@ -10,9 +10,8 @@ from openai import OpenAI
 from prompts import (
     BATCH_EVALUATION_PROMPT,
     FAST_GENERATION_PROMPT,
-    SINGLE_EVALUATION_PROMPT,
 )
-from rules import apply_rules, passes_filter
+from rules import apply_rules
 
 TLDS = [".com", ".co", ".net", ".org"]
 
