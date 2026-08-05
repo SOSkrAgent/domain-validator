@@ -7,9 +7,7 @@ from openai import OpenAI
 
 from prompts import (
     EVALUATION_PROMPT,
-    EVALUATION_SCHEMA,
     GENERATION_PROMPT,
-    GENERATION_SCHEMA,
 )
 from rules import RULES, apply_rules, passes_filter
 
@@ -27,6 +25,16 @@ class CandidateResult:
     verdict: str = "pending"
     rationale: str = ""
     error: str = ""
+
+
+import re
+
+
+def _parse_json(content: str) -> dict:
+    match = re.search(r"\{.*\}", content, re.DOTALL)
+    if not match:
+        raise ValueError(f"No JSON found in response: {content[:200]}")
+    return json.loads(match.group())
 
 
 def _build_client() -> OpenAI:
@@ -47,14 +55,11 @@ def generate_candidates(concept: str, n: int = 10, client: OpenAI | None = None)
             {"role": "system", "content": prompt},
             {"role": "user", "content": f"Concepto: {concept}"},
         ],
-        response_format={
-            "type": "json_schema",
-            "json_schema": GENERATION_SCHEMA,
-        },
+        response_format={"type": "json_object"},
         temperature=0.9,
     )
     content = response.choices[0].message.content
-    data = json.loads(content)
+    data = _parse_json(content)
     return data.get("candidates", [])
 
 
@@ -70,14 +75,11 @@ def evaluate_candidate(name: str, concept: str, client: OpenAI | None = None) ->
             {"role": "system", "content": prompt},
             {"role": "user", "content": f"Evalúa: {name}"},
         ],
-        response_format={
-            "type": "json_schema",
-            "json_schema": EVALUATION_SCHEMA,
-        },
+        response_format={"type": "json_object"},
         temperature=0.3,
     )
     content = response.choices[0].message.content
-    return json.loads(content)
+    return _parse_json(content)
 
 
 def _total_score(scores: dict) -> float:
