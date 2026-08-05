@@ -5,7 +5,7 @@ WORKDIR /app
 ARG BUILD_DATE=0
 
 COPY app/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir starlette==0.45.3 && pip install --no-cache-dir -r requirements.txt
 
 COPY app/ .
 
