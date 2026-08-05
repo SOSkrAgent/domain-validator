@@ -31,10 +31,17 @@ import re
 
 
 def _parse_json(content: str) -> dict:
-    match = re.search(r"\{.*\}", content, re.DOTALL)
-    if not match:
-        raise ValueError(f"No JSON found in response: {content[:200]}")
-    return json.loads(match.group())
+    # Try direct parse first
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        pass
+    # Extract JSON between first { and last }
+    start = content.find("{")
+    end = content.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        return json.loads(content[start:end + 1])
+    raise ValueError(f"No JSON found in response: {content[:300]}")
 
 
 def _build_client() -> OpenAI:
