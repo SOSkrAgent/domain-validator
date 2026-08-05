@@ -106,16 +106,16 @@ def _total_score(scores: dict) -> float:
 
 
 def check_availability(name: str) -> dict[str, str]:
-    user_id = os.getenv("RESELLERCLUB_USER_ID", "")
+    api_url = os.getenv("RESELLERCLUB_URL", "https://test.httpapi.com")
     api_key = os.getenv("RESELLERCLUB_API_KEY", "")
-    if not user_id or not api_key:
+    if not api_key:
         return {tld.lstrip("."): "unknown" for tld in TLDS}
 
     domain = name.lower()
     tlds_param = "&".join(f"tlds={tld.lstrip('.')}" for tld in TLDS)
     url = (
-        f"https://httpapi.com/api/domains/available.json"
-        f"?auth-userid={user_id}&api-key={api_key}"
+        f"{api_url}/api/domains/available.json"
+        f"?auth-userid=0&api-key={api_key}"
         f"&domain-name={domain}&{tlds_param}"
     )
     try:
