@@ -135,7 +135,9 @@ def check_availability(name: str) -> dict[str, str]:
             else:
                 result[tld_key] = str(status).lower()
         return result
-    except Exception:
+    except Exception as e:
+        import traceback
+        print(f"ResellerClub error for {domain}: {e}", flush=True)
         return {tld.lstrip("."): "error" for tld in TLDS}
 
 
