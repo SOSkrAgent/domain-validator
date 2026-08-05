@@ -1,6 +1,9 @@
 services:
   streamlit:
-    build: .
+    build:
+      context: .
+      args:
+        BUILD_DATE: ${BUILD_DATE:-0}
     ports:
       - "8501:8501"
     environment:

@@ -31,6 +31,8 @@ import re
 
 
 def _parse_json(content: str) -> dict:
+    if not content:
+        raise ValueError("Empty response from LLM")
     try:
         return json.loads(content)
     except (json.JSONDecodeError, TypeError):
@@ -72,6 +74,9 @@ def generate_candidates(concept: str, n: int = 10, client: OpenAI | None = None)
         max_tokens=2000,
     )
     content = response.choices[0].message.content
+    if not content:
+        finish = response.choices[0].finish_reason
+        raise ValueError(f"LLM returned empty response (finish_reason={finish})")
     try:
         data = _parse_json(content)
         return data.get("candidates", [])
