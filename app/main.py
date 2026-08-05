@@ -88,9 +88,8 @@ if st.button("Ejecutar Pipeline", use_container_width=True, disabled=not concept
             i, total, name = step
             progress_bar.progress(i / total)
             status.info(f"Evaluando {i}/{total} — {name} ✓")
-            # Sort: scored first (by score desc), then unscored (original order)
-            scored_names = {c.name for j, c in enumerate(candidates) if j < i}
-            ordered = sorted(candidates, key=lambda c: (-c.total_score if c.name in scored_names else 999))
+            # Sort: scored first (by score desc), then unscored
+            ordered = sorted(candidates, key=lambda c: (-c.total_score if any(s.get("value") for s in c.scores.values()) else 999))
             with container.container():
                 _render_list(ordered, i)
 

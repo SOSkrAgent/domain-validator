@@ -83,7 +83,6 @@ def score_stream(candidates: list[CandidateResult], concept: str):
     client = _build_go_client()
     model = os.getenv("LLM_MODEL", "kimi-k2.6")
     total = len(candidates)
-    scored_map: dict[str, dict] = {}
 
     for i, c in enumerate(candidates):
         prompt = SINGLE_EVALUATION_PROMPT.format(name=c.name, concept=concept)
@@ -98,24 +97,22 @@ def score_stream(candidates: list[CandidateResult], concept: str):
             try:
                 data = _parse_json(content)
                 if "evocation" in data:
-                    scored_map[c.name] = data
+                    c.scores = {
+                        "evocation": data.get("evocation", {}),
+                        "memorability": data.get("memorability", {}),
+                        "story": data.get("story", {}),
+                        "collision": data.get("collision", {}),
+                    }
+                    c.total_score = _total_score(data)
             except (ValueError, json.JSONDecodeError):
                 pass
         yield i + 1, total, c.name
 
     for c in candidates:
-        s = scored_map.get(c.name, {})
-        c.scores = {
-            "evocation": s.get("evocation", {}),
-            "memorability": s.get("memorability", {}),
-            "story": s.get("story", {}),
-            "collision": s.get("collision", {}),
-        }
-        c.total_score = _total_score(s) if s else 0.0
         c.availability = avail.get(c.name, {})
         if all(v in ("taken", "unavailable") for v in c.availability.values()):
             c.verdict = "unavailable"
-        elif not s:
+        elif not c.scores:
             c.verdict = "pending"
         elif c.total_score < 3.0:
             c.verdict = "weak"
